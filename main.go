@@ -18,5 +18,5 @@ package main
 import "github.com/bfjelds/etcd-raft-test/cmd"
 
 func main() {
-	cmd.Execute()
+	root.Execute()
 }

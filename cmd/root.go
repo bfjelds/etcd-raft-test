@@ -13,33 +13,116 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package cmd
+package root
 
 import (
 	"fmt"
 	"github.com/spf13/cobra"
 	"os"
+	"strings"
+//	"time"
 
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/viper"
+	"go.etcd.io/etcd/raft"
+	"go.etcd.io/etcd/raft/raftpb"
+
+	raftSupport "github.com/bfjelds/etcd-raft-test/raft"
+
 )
 
-var cfgFile string
+
+var (
+	raftNode   raft.Node
+	
+	proposeC   chan string
+	confChangeC chan raftpb.ConfChange
+	cfgFile string
+	cluster string
+	id int
+	port int
+	join bool
+)
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "etcd-raft-test",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
+	Short: "Create a test of the etcd raft implementation",
+	Long: `Create a test of the etcd 
+	raft implementation. Usage:
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	//	Run: func(cmd *cobra.Command, args []string) { },
+etc-raft-test foo &
+etc-raft-test bar &
+etc-raft-test zoo &
+`,
+	Run: func(cmd *cobra.Command, args []string) {
+
+		// Start raft business
+
+		proposeC := make(chan string)
+		defer close(proposeC)
+		confChangeC := make(chan raftpb.ConfChange)
+		defer close(confChangeC)
+	
+		// raft provides a commit stream for the proposals from the http api
+		var kvs *raftSupport.KvStore
+		getSnapshot := func() ([]byte, error) { return kvs.GetSnapshot() }
+		commitC, errorC, snapshotterReady := raftSupport.NewRaftNode(id, strings.Split(cluster, ","), join, getSnapshot, proposeC, confChangeC)
+	
+		kvs = raftSupport.NewKVStore(<-snapshotterReady, proposeC, commitC, errorC)
+	
+		// the key-value http handler will propose updates to raft
+		raftSupport.ServeHttpKVAPI(kvs, port, confChangeC, errorC)
+	
+
+
+	// 	storage := raft.NewMemoryStorage()
+
+	// 	c := &raft.Config{
+	// 		ID:              uint64(id),
+	// 		ElectionTick:    10,
+	// 		HeartbeatTick:   1,
+	// 		Storage:         storage,
+	// 		MaxSizePerMsg:   4096,
+	// 		MaxInflightMsgs: 256,
+	// 	}
+
+	// 	// Create storage and config as shown above.
+	// 	// Set peer list to itself, so this node can become the leader of this single-node cluster.
+	// 	peers := []raft.Peer{{ID: 0x01}}
+	// 	raftNode = raft.StartNode(c, peers)
+
+	// 	ticker := time.NewTicker(1 * time.Second)
+	// 	for {
+	// 		select {
+	// 		case <- ticker.C:
+	// 			raftNode.Tick()
+	// 		case readyc := <- raftNode.Ready():
+	// 			fmt.Println("node is ready")
+	// 			storage.Append(readyc.Entries)
+
+	// 			for _, ent := range readyc.CommittedEntries {
+	// 				fmt.Println("commit entry:", string(ent.Data))
+	// 				switch ent.Type {
+	// 				case raftpb.EntryNormal:
+	// 					fmt.Println("Normal entry:", ent)
+
+	// 				case raftpb.EntryConfChange:
+	// 					fmt.Println("Conf Change entry:", ent)
+	// 					var cc raftpb.ConfChange
+	// 					cc.Unmarshal(ent.Data)
+	// 					raftNode.ApplyConfChange(cc)
+	// 				}
+	// 			}
+	// 			raftNode.Advance()
+	// 		}
+	// 	}
+	},
 }
+
+// func recvRaftRPC(ctx context.Context, m raftpb.Message) {
+// 	n.Step(ctx, m)
+// }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
@@ -58,6 +141,11 @@ func init() {
 	// will be global for your application.
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.etcd-raft-test.yaml)")
+
+	rootCmd.PersistentFlags().StringVar(&cluster, "cluster", "http://127.0.0.1:9021", "comma separated cluster peers")
+	rootCmd.PersistentFlags().IntVar(&id, "id", 1, "node ID")
+	rootCmd.PersistentFlags().IntVar(&port, "port", 9121, "key-value server port")
+	rootCmd.PersistentFlags().BoolVar(&join, "join", false, "join an existing cluster")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
