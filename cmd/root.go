@@ -17,10 +17,12 @@ package root
 
 import (
 	"fmt"
-	"github.com/spf13/cobra"
+	"log"
 	"os"
 	"strings"
-//	"time"
+	"time"
+
+	"github.com/spf13/cobra"
 
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/viper"
@@ -28,20 +30,18 @@ import (
 	"go.etcd.io/etcd/raft/raftpb"
 
 	raftSupport "github.com/bfjelds/etcd-raft-test/raft"
-
 )
 
-
 var (
-	raftNode   raft.Node
-	
-	proposeC   chan string
+	RaftNode raft.Node
+
+	proposeC    chan string
 	confChangeC chan raftpb.ConfChange
-	cfgFile string
-	cluster string
-	id int
-	port int
-	join bool
+	cfgFile     string
+	cluster     string
+	id          int
+	port        int
+	join        bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -63,60 +63,74 @@ etc-raft-test zoo &
 		defer close(proposeC)
 		confChangeC := make(chan raftpb.ConfChange)
 		defer close(confChangeC)
-	
+
 		// raft provides a commit stream for the proposals from the http api
 		var kvs *raftSupport.KvStore
 		getSnapshot := func() ([]byte, error) { return kvs.GetSnapshot() }
-		commitC, errorC, snapshotterReady := raftSupport.NewRaftNode(id, strings.Split(cluster, ","), join, getSnapshot, proposeC, confChangeC)
-	
+		commitC, errorC, snapshotterReady, rc := raftSupport.NewRaftNode(id, strings.Split(cluster, ","), join, getSnapshot, proposeC, confChangeC)
+
 		kvs = raftSupport.NewKVStore(<-snapshotterReady, proposeC, commitC, errorC)
-	
+
+		// How to poll for current leader
+		go func() {
+			for {
+				select {
+				case <-time.After(1 * time.Second):
+					if rc.Node != nil {
+						status := rc.Node.Status()
+						log.Printf("LEADERSHIP-TRACKER-POLLING - Me=%d ... Leader=%d", status.ID, status.SoftState.Lead)
+					}
+
+					//do something
+				}
+			}
+
+		}()
+
 		// the key-value http handler will propose updates to raft
 		raftSupport.ServeHttpKVAPI(kvs, port, confChangeC, errorC)
-	
 
+		// 	storage := raft.NewMemoryStorage()
 
-	// 	storage := raft.NewMemoryStorage()
+		// 	c := &raft.Config{
+		// 		ID:              uint64(id),
+		// 		ElectionTick:    10,
+		// 		HeartbeatTick:   1,
+		// 		Storage:         storage,
+		// 		MaxSizePerMsg:   4096,
+		// 		MaxInflightMsgs: 256,
+		// 	}
 
-	// 	c := &raft.Config{
-	// 		ID:              uint64(id),
-	// 		ElectionTick:    10,
-	// 		HeartbeatTick:   1,
-	// 		Storage:         storage,
-	// 		MaxSizePerMsg:   4096,
-	// 		MaxInflightMsgs: 256,
-	// 	}
+		// 	// Create storage and config as shown above.
+		// 	// Set peer list to itself, so this node can become the leader of this single-node cluster.
+		// 	peers := []raft.Peer{{ID: 0x01}}
+		// 	RaftNode = raft.StartNode(c, peers)
 
-	// 	// Create storage and config as shown above.
-	// 	// Set peer list to itself, so this node can become the leader of this single-node cluster.
-	// 	peers := []raft.Peer{{ID: 0x01}}
-	// 	raftNode = raft.StartNode(c, peers)
+		// 	ticker := time.NewTicker(1 * time.Second)
+		// 	for {
+		// 		select {
+		// 		case <- ticker.C:
+		// 			RaftNode.Tick()
+		// 		case readyc := <- RaftNode.Ready():
+		// 			fmt.Println("node is ready")
+		// 			storage.Append(readyc.Entries)
 
-	// 	ticker := time.NewTicker(1 * time.Second)
-	// 	for {
-	// 		select {
-	// 		case <- ticker.C:
-	// 			raftNode.Tick()
-	// 		case readyc := <- raftNode.Ready():
-	// 			fmt.Println("node is ready")
-	// 			storage.Append(readyc.Entries)
+		// 			for _, ent := range readyc.CommittedEntries {
+		// 				fmt.Println("commit entry:", string(ent.Data))
+		// 				switch ent.Type {
+		// 				case raftpb.EntryNormal:
+		// 					fmt.Println("Normal entry:", ent)
 
-	// 			for _, ent := range readyc.CommittedEntries {
-	// 				fmt.Println("commit entry:", string(ent.Data))
-	// 				switch ent.Type {
-	// 				case raftpb.EntryNormal:
-	// 					fmt.Println("Normal entry:", ent)
-
-	// 				case raftpb.EntryConfChange:
-	// 					fmt.Println("Conf Change entry:", ent)
-	// 					var cc raftpb.ConfChange
-	// 					cc.Unmarshal(ent.Data)
-	// 					raftNode.ApplyConfChange(cc)
-	// 				}
-	// 			}
-	// 			raftNode.Advance()
-	// 		}
-	// 	}
+		// 				case raftpb.EntryConfChange:
+		// 					fmt.Println("Conf Change entry:", ent)
+		// 					var cc raftpb.ConfChange
+		// 					cc.Unmarshal(ent.Data)
+		// 					RaftNode.ApplyConfChange(cc)
+		// 				}
+		// 			}
+		// 			RaftNode.Advance()
+		// 		}
+		// 	}
 	},
 }
 

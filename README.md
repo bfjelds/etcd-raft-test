@@ -17,14 +17,16 @@ cd test
 
 TEST_BINARY_PATH="../$TEST_BINARY_NAME"
 STATIC_LIST="http://127.0.0.1:12379,http://127.0.0.1:22379,http://127.0.0.1:32379"
-echo "Add 1 to cluster: $NEW_STATIC_LIST"
-( $TEST_BINARY_PATH --id 1 --cluster "$STATIC_LIST" --port 12380 1>&1.log ) &
-echo "Add 2 to cluster: $NEW_STATIC_LIST"
-( $TEST_BINARY_PATH --id 2 --cluster "$STATIC_LIST" --port 22380 1>&2.log ) &
-echo "Add 3 to cluster: $NEW_STATIC_LIST"
-( $TEST_BINARY_PATH --id 3 --cluster "$STATIC_LIST" --port 32380 1>&3.log ) &
+echo "Add 1 to cluster: $STATIC_LIST"
+( $TEST_BINARY_PATH --id 1 --cluster "$STATIC_LIST" --port 12380 1>& 1.log ) &
+echo "Add 2 to cluster: $STATIC_LIST"
+( $TEST_BINARY_PATH --id 2 --cluster "$STATIC_LIST" --port 22380 1>& 2.log ) &
+echo "Add 3 to cluster: $STATIC_LIST"
+( $TEST_BINARY_PATH --id 3 --cluster "$STATIC_LIST" --port 32380 1>& 3.log ) &
 sleep 2s
 cat *.log | grep "became leader" | sort
+cat *.log | grep "LEADERSHIP-TRACKER-POLLING" | sort
+cat *.log | grep "LEADERSHIP-TRACKER-NOTIFICATION" | sort
 
 ```
 
@@ -58,6 +60,8 @@ curl -L "$NON_LEADER_URL/$LEADER_INDEX" -XDELETE
 sleep 2s
 cat *.log | grep "4 elected leader" | sort
 cat *.log | grep "became leader" | sort
+cat *.log | grep "LEADERSHIP-TRACKER-POLLING" | sort
+cat *.log | grep "LEADERSHIP-TRACKER-NOTIFICATION" | sort
 
 ```
 
